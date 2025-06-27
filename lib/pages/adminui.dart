@@ -1,7 +1,12 @@
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_application_3/pages/api_call.dart';
+import 'package:flutter_application_3/services/notification_services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_application_3/pages/imgtoserver.dart';
 import 'dart:io';
 
 class Adminui extends StatefulWidget {
@@ -16,6 +21,186 @@ class _AdminuiState extends State<Adminui> {
   String? _imageName;
   bool _isUploading = false;
 
+  // List to store notifications
+  List<Map<String, dynamic>> _notifications = [];
+  bool _isLoadingNotifications = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetch notifications when the page loads
+    _fetchNotifications();
+  }
+
+  // Method to fetch notifications from Firestore
+  Future<void> _fetchNotifications() async {
+    setState(() {
+      _isLoadingNotifications = true;
+    });
+
+    try {
+      // Fetch notifications from Firestore
+      log("Getting notifications");
+      final QuerySnapshot snapshot = await FirebaseFirestore.instance
+          .collection('notifications')
+          .orderBy('timestamp', descending: true)
+          .limit(20)
+          .get();
+
+      setState(() {
+        _notifications = snapshot.docs
+            .map((doc) => {
+                  'id': doc.id,
+                  'title': (doc.data() as Map<String, dynamic>)['title'] ??
+                      'suspect founded',
+                  'message': (doc.data() as Map<String, dynamic>)['message'] ??
+                      'No message',
+                  'timestamp':
+                      (doc.data() as Map<String, dynamic>)['timestamp'] ??
+                          Timestamp.now(),
+                  'read': (doc.data() as Map<String, dynamic>)['read'] ?? false,
+                })
+            .toList();
+      });
+
+      log(_notifications.toString());
+    } catch (e) {
+      print("Error fetching notifications: $e");
+    } finally {
+      setState(() {
+        _isLoadingNotifications = false;
+      });
+    }
+  }
+
+  // Method to show notifications panel
+  void _showNotificationsPanel() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, // Makes the bottom sheet expand to half screen
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.5, // Makes it half screen
+        minChildSize: 0.3,
+        maxChildSize: 0.8,
+        builder: (_, controller) => Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 10,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Handle bar
+              Container(
+                margin: EdgeInsets.symmetric(vertical: 12),
+                width: 40,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(5),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20.0, vertical: 10.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Notifications',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.refresh),
+                      onPressed: _fetchNotifications,
+                    ),
+                  ],
+                ),
+              ),
+              Divider(),
+              // Notifications list
+              Expanded(
+                child: _isLoadingNotifications
+                    ? Center(child: CircularProgressIndicator())
+                    : _notifications.isEmpty
+                        ? Center(child: Text('No notifications yet'))
+                        : ListView.builder(
+                            controller: controller,
+                            itemCount: _notifications.length,
+                            itemBuilder: (context, index) {
+                              final notification = _notifications[index];
+                              final timestamp =
+                                  notification['timestamp'] as Timestamp;
+                              final date = timestamp.toDate();
+
+                              return Container(
+                                margin: EdgeInsets.symmetric(
+                                    vertical: 5, horizontal: 15),
+                                decoration: BoxDecoration(
+                                  color: notification['read']
+                                      ? Colors.white
+                                      : Colors.green[50],
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.grey[300]!),
+                                ),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: const Color(0xFF254117),
+                                    child: Icon(Icons.notification_important,
+                                        color: Colors.white),
+                                  ),
+                                  title: Text(
+                                    notification['title'],
+                                    style: TextStyle(
+                                      fontWeight: notification['read']
+                                          ? FontWeight.normal
+                                          : FontWeight.bold,
+                                    ),
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(notification['message']),
+                                      SizedBox(height: 4),
+                                      Text(
+                                        '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute}',
+                                        style: TextStyle(
+                                            fontSize: 12, color: Colors.grey),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () async {
+                                    // Mark as read when tapped
+                                    await FirebaseFirestore.instance
+                                        .collection('notifications')
+                                        .doc(notification['id'])
+                                        .update({'read': true});
+                                    _fetchNotifications();
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _pickImage() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
@@ -24,6 +209,7 @@ class _AdminuiState extends State<Adminui> {
       setState(() {
         _selectedImage = File(image.path);
         _imageName = image.name;
+        //String imageName = path.basename(_selectedImage);
       });
     }
   }
@@ -37,7 +223,8 @@ class _AdminuiState extends State<Adminui> {
 
   Future<void> _sendImage() async {
     if (_selectedImage == null) return;
-
+    addSuspect(_selectedImage!.path, _imageName!);
+    //uploadFile(_selectedImage!, context,_imageName!);
     setState(() {
       _isUploading = true;
     });
@@ -46,7 +233,6 @@ class _AdminuiState extends State<Adminui> {
       // Create a reference to Firebase Storage
       final storageRef = FirebaseStorage.instance.ref().child(
           'suspect_images/${DateTime.now().millisecondsSinceEpoch}_${_imageName?.substring(0, 20)}');
-          
 
       // Upload the image
       await storageRef.putFile(_selectedImage!);
@@ -60,6 +246,8 @@ class _AdminuiState extends State<Adminui> {
         'imageName': _imageName,
         'uploadedAt': FieldValue.serverTimestamp(),
       });
+      // In your _sendImage() method
+      //bool serverUploadSuccess = await uploadFile(_selectedImage!, context);
 
       // Reset image selection
       setState(() {
@@ -100,7 +288,7 @@ class _AdminuiState extends State<Adminui> {
                     icon: const Icon(Icons.menu),
                   ),
                   IconButton(
-                    onPressed: () {},
+                    onPressed: _showNotificationsPanel,
                     icon: const Icon(Icons.notifications),
                   ),
                 ],
@@ -126,13 +314,15 @@ class _AdminuiState extends State<Adminui> {
                 child: SizedBox(
                   width: double.infinity,
                   child: Row(
-                    
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      SizedBox(width: 10,),
+                      SizedBox(
+                        width: 10,
+                      ),
                       Expanded(
-                        child:Padding(padding: EdgeInsets.symmetric(horizontal: 12),
-                         child: Container(
+                          child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        child: Container(
                           padding: EdgeInsets.symmetric(horizontal: 2),
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
@@ -142,10 +332,10 @@ class _AdminuiState extends State<Adminui> {
                           height: 50,
                           child: Row(
                             children: [
-                              
                               Expanded(
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10),
                                   child: SingleChildScrollView(
                                     scrollDirection: Axis.horizontal,
                                     child: Text(
@@ -167,9 +357,7 @@ class _AdminuiState extends State<Adminui> {
                             ],
                           ),
                         ),
-                        )
-                        
-                      ),
+                      )),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20.0),
                         child: Container(

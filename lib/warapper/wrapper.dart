@@ -1,10 +1,13 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_application_3/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_application_3/pages/adminui.dart';
 import 'package:flutter_application_3/pages/userui.dart';
 import 'package:flutter_application_3/warapper/login.dart';
 
 class Wrapper extends StatefulWidget {
+  // final CameraDescription camera;
   const Wrapper({super.key});
 
   @override
@@ -44,7 +47,7 @@ class _WrapperState extends State<Wrapper> {
     } else if (_userId == 1) {
       return const Adminui();
     } else {
-      return const Userui();
+      return Userui(camera: firstCamera!);
     }
   }
 }
